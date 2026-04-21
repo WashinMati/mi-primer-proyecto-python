@@ -48,7 +48,12 @@ def responder(mensaje):
     # HORARIO
     elif "horario" in mensaje or "hora" in mensaje:
         return "Atendemos de 10:00 a 20:00 🕒"
-
+    # REDES / CATÁLOGO
+    elif any(palabra in mensaje for palabra in ["catalogo", "catálogo", "productos", "ver", "instagram", "ig", "facebook", "tiktok"]):
+        return ("Puedes ver nuestro catálogo y todos los productos aquí 👇\n\n"
+        "📸 Instagram: https://www.instagram.com/regatea.latienda/\n"
+        "📘 Facebook: https://www.facebook.com/Regatea.latienda\n"
+        "🎵 TikTok: https://www.tiktok.com/@regatea.latienda")
     # DEFAULT
     else:
         return "No entendí bien 🤔 ¿Buscas polerones, parkas o ropa de bebé?"
