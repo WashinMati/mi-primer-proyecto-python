@@ -8,13 +8,18 @@ def responder(mensaje):
     if "hola" in mensaje:
         return "Hola! 😊 ¿Cuál es tu nombre?"
 
-    # NOMBRE (más flexible)
-    elif "mi nombre es" in mensaje or "soy" in mensaje:
-        nombre = mensaje.replace("mi nombre es", "").replace("soy", "").strip()
+    # NOMBRE (mejorado)
+    elif "mi nombre es" in mensaje:
+        nombre = mensaje.replace("mi nombre es", "").strip()
         cliente_actual["nombre"] = nombre
         return f"Mucho gusto {nombre} 😊 ¿Qué producto buscas?"
 
-    # PRODUCTOS (más natural)
+    elif mensaje.startswith("soy "):
+        nombre = mensaje.replace("soy ", "").strip()
+        cliente_actual["nombre"] = nombre
+        return f"Mucho gusto {nombre} 😊 ¿Qué producto buscas?"
+
+    # PRODUCTOS
     elif any(palabra in mensaje for palabra in ["poleron", "polerón", "hoodie"]):
         if "nombre" in cliente_actual:
             cliente_actual["interes"] = "poleron"
@@ -49,7 +54,7 @@ def responder(mensaje):
         return "No entendí bien 🤔 ¿Buscas polerones, parkas o ropa de bebé?"
 
 
-# 👇 FUERA de la función
+# 👇 PROGRAMA PRINCIPAL
 while True:
     mensaje = input("Cliente: ")
     respuesta = responder(mensaje)
