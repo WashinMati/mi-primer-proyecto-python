@@ -1,16 +1,41 @@
 import difflib
 import json
 import os
+import re
 
+# =========================
+# MEMORIA
+# =========================
+clientes_sesion = {}
 cliente_actual = {}
 
-# 📁 RUTA
+# =========================
+# RUTAS
+# =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO = os.path.join(BASE_DIR, "clientes.json")
+PRODUCTOS_ARCHIVO = os.path.join(BASE_DIR, "productos.json")
+
+
+def normalizar(texto):
+    texto = texto.lower()
+    texto = re.sub(r'[^\w\s]', '', texto)
+    return texto.strip()
+
+
+def es_saludo(mensaje):
+    return bool(re.search(r'\bho+la+\b', mensaje))
+
+
+def obtener_cliente(nombre):
+    global clientes_sesion
+    if nombre not in clientes_sesion:
+        clientes_sesion[nombre] = {"nombre": nombre}
+    return clientes_sesion[nombre]
 
 
 # =========================
-# JSON
+# JSON CLIENTES
 # =========================
 def cargar_clientes():
     if os.path.exists(ARCHIVO):
@@ -27,7 +52,7 @@ def guardar_clientes(lista):
         with open(ARCHIVO, "w", encoding="utf-8") as archivo:
             json.dump(lista, archivo, indent=4, ensure_ascii=False)
     except Exception as e:
-        print("⚠️ Error al guardar:", e)
+        print("⚠️ Error:", e)
 
 
 clientes = cargar_clientes()
@@ -50,6 +75,39 @@ def guardar_o_actualizar():
 
 
 # =========================
+# PRODUCTOS
+# =========================
+def cargar_productos():
+    if os.path.exists(PRODUCTOS_ARCHIVO):
+        try:
+            with open(PRODUCTOS_ARCHIVO, "r", encoding="utf-8") as archivo:
+                return json.load(archivo)
+        except:
+            return {}
+    return {}
+
+
+productos = cargar_productos()
+
+
+def obtener_info_producto(nombre):
+    data = productos.get(nombre, {})
+    precio = data.get("precio", "??")
+    stock = data.get("stock", 0)
+
+    if stock == 0:
+        estado = "😢 sin stock"
+    elif stock <= 3:
+        estado = "⚠️ quedan MUY pocas"
+    elif stock <= 5:
+        estado = "👀 quedan pocas unidades"
+    else:
+        estado = "🙌 hay stock"
+
+    return precio, estado
+
+
+# =========================
 # IA SIMPLE
 # =========================
 def detectar_palabra(mensaje, lista):
@@ -60,18 +118,16 @@ def detectar_palabra(mensaje, lista):
 
 
 def detectar_talla(mensaje):
-    palabras = mensaje.split()
     tallas = ["xs", "s", "m", "l", "xl", "xxl"]
-
-    for palabra in palabras:
+    for palabra in mensaje.split():
         if palabra in tallas:
             return palabra.upper()
     return None
 
 
 def detectar_nombre_frase(mensaje):
-    palabras = mensaje.split()
     claves = ["soy", "nombre", "llamo"]
+    palabras = mensaje.split()
 
     for i, p in enumerate(palabras):
         if p in claves and i + 1 < len(palabras):
@@ -87,153 +143,186 @@ def detectar_nombre_frase(mensaje):
 def responder(mensaje):
     global cliente_actual
 
-    mensaje = mensaje.lower().strip()
+    try:
+        mensaje = normalizar(mensaje)
 
-    # 🚫 SI YA ESTÁ EN COMPRA
-    if cliente_actual.get("flujo") == "compra":
-        return "🛒 Ya estamos en proceso de compra 😄 Escríbenos por DM para finalizar 😉"
+        # =========================
+        # 🙌 DESPEDIDA
+        # =========================
+        if mensaje in ["gracias", "vale", "ok", "chao", "adios"]:
+            nombre = cliente_actual.get("nombre", "")
+            cliente_actual.clear()
+            return f"😊 ¡De nada {nombre}! Cuando quieras, aquí estaré 🙌"
 
-    # 👋 SALUDO
-    if "hola" in mensaje:
-        if "nombre" in cliente_actual:
-            return f"Hola {cliente_actual['nombre']} 😄 ¿Buscas polerones, parkas o ropa de bebé?"
-        return "Hola! 😊 ¿Cuál es tu nombre?"
+        # =========================
+        # 👋 SALUDO INTELIGENTE
+        # =========================
+        if es_saludo(mensaje):
+            if "nombre" in cliente_actual:
+                return f"Hola {cliente_actual['nombre']} 😄 ¿Buscas polerones, parkas o ropa de bebé?"
+            return "Hola! 😄 ¿Cuál es tu nombre?"
 
-    # 👤 NOMBRE CON FRASE (soy mati)
-    nombre = detectar_nombre_frase(mensaje)
-    if nombre and "nombre" not in cliente_actual:
-        cliente_actual["nombre"] = nombre
-        guardar_o_actualizar()
-        return f"Mucho gusto {nombre} 😊 ¿Qué estás buscando?"
+        # =========================
+        # 🔥 DETECTAR PRODUCTO
+        # =========================
+        if detectar_palabra(mensaje, ["poleron", "polerones", "hoodie"]):
+            mensaje = "polerones"
+        elif detectar_palabra(mensaje, ["parka", "parkas", "chaqueta"]):
+            mensaje = "parkas"
+        elif detectar_palabra(mensaje, ["bebe", "bebé", "guagua"]):
+            mensaje = "ropa bebé"
 
-    # 👤 NOMBRE SOLO (mati)  🔥 IMPORTANTE: va AQUÍ
-    if "nombre" not in cliente_actual:
-        palabras_invalidas = [
-            "hola", "si", "sí", "no", "dale", "ok",
-            "poleron", "polerones", "parka", "parkas",
-            "bebe", "bebé", "guagua", "comprar"
-        ]
+        # =========================
+        # 💰 INTENCIÓN DE PRECIO
+        # =========================
+        if any(p in mensaje for p in ["precio", "plata", "cuanto", "cuesta"]):
+            if "interes" in cliente_actual:
+                return f"💰 Los {cliente_actual['interes']} van desde precios accesibles 👀 ¿Quieres ver opciones?"
+            return "💰 Tenemos precios variados 😄 ¿Buscas polerones, parkas o ropa de bebé?"
 
-        palabras = mensaje.split()
+        # =========================
+        # 🔥 TALLA
+        # =========================
+        talla = detectar_talla(mensaje)
+        if talla:
+            cliente_actual["talla"] = talla
+            cliente_actual["flujo"] = "preguntando_estilo"
+            guardar_o_actualizar()
+            return f"🔥 Perfecto, talla {talla} 👌 ¿deportivo o urbano?"
 
-        if len(palabras) == 1:
-            posible_nombre = palabras[0]
+        # =========================
+        # 👤 NOMBRE
+        # =========================
+        nombre = detectar_nombre_frase(mensaje)
+        if nombre and "nombre" not in cliente_actual:
+            cliente_actual = obtener_cliente(nombre)
+            guardar_o_actualizar()
+            return f"Mucho gusto {nombre} 😊 ¿Qué estás buscando?"
 
-            if (
-                posible_nombre.isalpha() and
-                posible_nombre not in palabras_invalidas and
-                len(posible_nombre) >= 3
-            ):
-                cliente_actual["nombre"] = posible_nombre
-                guardar_o_actualizar()
-                return f"Mucho gusto {posible_nombre} 😊 ¿Qué estás buscando?"
+        if "nombre" not in cliente_actual:
+            palabras_invalidas = ["hola", "si", "no", "ok", "dale"]
+            palabras_producto = ["parka", "parkas", "poleron", "polerones", "bebe"]
+            palabras_no_nombre = [
+                "plata", "precio", "valor", "cuanto", "cuesta",
+                "ver", "quiero", "busco", "necesito",
+                "ropa", "stock", "modelo"
+            ]
+            tallas = ["xs", "s", "m", "l", "xl", "xxl"]
 
-    # 🛒 COMPRA
-    if "comprar" in mensaje:
-        if "interes" in cliente_actual:
-            cliente_actual["flujo"] = "compra"
+            palabras = mensaje.split()
+
+            if len(palabras) == 1:
+                posible = palabras[0]
+
+                if (
+                    posible.isalpha()
+                    and posible not in palabras_invalidas
+                    and posible not in tallas
+                    and posible not in palabras_producto
+                    and posible not in palabras_no_nombre
+                    and not es_saludo(posible)
+                    and len(posible) > 2
+                ):
+                    cliente_actual = obtener_cliente(posible)
+                    guardar_o_actualizar()
+                    return f"Mucho gusto {posible} 😊 ¿Qué estás buscando?"
+
+        # =========================
+        # PRODUCTOS
+        # =========================
+        def cambiar_interes(nuevo):
+            anterior = cliente_actual.get("interes")
+
+            cliente_actual["interes"] = nuevo
+            guardar_o_actualizar()
+
+            if "talla" in cliente_actual:
+                cliente_actual["flujo"] = "preguntando_estilo"
+                return f"😏 Ya tengo tu talla {cliente_actual['talla']} 👌 ¿deportivo o urbano?"
+
+            cliente_actual["flujo"] = "preguntando_talla"
+
+            if anterior and anterior != nuevo:
+                return f"😄 Ahh buena, cambiamos a {nuevo} entonces 👌 ¿Qué talla buscas?"
+            return None
+
+        if "polerones" in mensaje:
+            msg = cambiar_interes("polerones")
+            if msg:
+                return msg
+
+            precio, estado = obtener_info_producto("polerones")
+            talla = cliente_actual.get("talla", "")
+            extra = f" en talla {talla}" if talla else ""
+            urgencia = " 😳 se están yendo rápido" if "MUY pocas" in estado else ""
+
+            return f"🔥 Tengo polerones{extra} desde ${precio} y {estado}{urgencia} ¿Quieres ver opciones?"
+
+        if "parkas" in mensaje:
+            msg = cambiar_interes("parkas")
+            if msg:
+                return msg
+
+            precio, estado = obtener_info_producto("parkas")
+            talla = cliente_actual.get("talla", "")
+            extra = f" en talla {talla}" if talla else ""
+            urgencia = " 😳 se están yendo rápido" if "MUY pocas" in estado else ""
+
+            return f"🧥 Tengo parkas{extra} desde ${precio} y {estado}{urgencia} ¿Quieres ver opciones?"
+
+        if "ropa bebé" in mensaje:
+            msg = cambiar_interes("ropa bebé")
+            if msg:
+                return msg
+
+            precio, estado = obtener_info_producto("ropa bebé")
+            talla = cliente_actual.get("talla", "")
+            extra = f" en talla {talla}" if talla else ""
+            urgencia = " 😳 se están yendo rápido" if "MUY pocas" in estado else ""
+
+            return f"👶 Tengo ropa de bebé{extra} desde ${precio} y {estado}{urgencia} ¿Quieres ver opciones?"
+
+        # =========================
+        # 👍 RESPUESTAS
+        # =========================
+        if any(p in mensaje for p in ["si", "dale"]):
+            flujo = cliente_actual.get("flujo")
+
+            if flujo == "preguntando_talla":
+                return "👌 Perfecto, dime tu talla (S, M, L, XL)"
+
+            elif flujo == "preguntando_estilo":
+                return "🔥 ¿Prefieres deportivo o urbano?"
+
+        # =========================
+        # ESTILO
+        # =========================
+        if "deportivo" in mensaje or "urbano" in mensaje:
+
+            estilo = "deportivo" if "deportivo" in mensaje else "urbano"
+
+            cliente_actual["estilo"] = estilo
+            cliente_actual["flujo"] = None
             guardar_o_actualizar()
 
             return (
-                f"🛒 Buenísima {cliente_actual.get('nombre','')}! 🙌\n\n"
-                f"Producto: {cliente_actual.get('interes','')}\n"
-                f"Talla: {cliente_actual.get('talla','No definida')}\n"
-                f"Estilo: {cliente_actual.get('estilo','No definido')}\n\n"
-                "📩 Escríbenos por DM 👇\n"
-                "https://www.instagram.com/regatea.latienda/"
-            )
-        return "👀 ¿Qué producto te gustaría comprar?"
-
-    # 👍 SI
-    if any(p in mensaje for p in ["si", "sí", "dale", "ok", "obvio"]):
-        flujo = cliente_actual.get("flujo")
-
-        if flujo == "preguntando_talla":
-            return "👌 Perfecto, dime tu talla (S, M, L, XL)"
-
-        elif flujo == "preguntando_estilo":
-            return "🔥 Buenísimo ¿te gusta más deportivo o urbano?"
-
-        elif "interes" in cliente_actual:
-            return (
-                "🔥 Mira aquí 👇\n\n"
+                f"😏 Buena elección {cliente_actual.get('nombre','')}\n\n"
+                "🔥 Te puedo mostrar modelos disponibles ahora mismo\n\n"
                 "📸 Instagram: https://www.instagram.com/regatea.latienda/\n"
-                "📘 Facebook: https://www.facebook.com/Regatea.latienda\n\n"
-                "💬 Escríbenos por DM 😉"
+                "💬 O si prefieres, te los mando directo por WhatsApp 👇\n"
+                "📲 +56935628595"
             )
 
-    # 👎 NO
-    if any(p in mensaje for p in ["no", "nop", "no gracias"]):
-        cliente_actual["flujo"] = None
-        return "😊 Dale! Si necesitas algo, dime qué buscas"
+        return "🤔 No entendí… ¿Buscas polerones, parkas o ropa de bebé?"
 
-    # 👕 TALLA
-    talla = detectar_talla(mensaje)
-    if talla:
-        cliente_actual["talla"] = talla
-        cliente_actual["flujo"] = "preguntando_estilo"
-        guardar_o_actualizar()
-        return f"🔥 Perfecto, talla {talla} 👌 ¿prefieres estilo deportivo o urbano?"
-
-    # 🎯 ESTILO
-    if "deportivo" in mensaje or "urbano" in mensaje:
-        cliente_actual["estilo"] = mensaje
-        cliente_actual["flujo"] = "cerrando"
-        guardar_o_actualizar()
-
-        return (
-            f"😏 Buena elección {cliente_actual.get('nombre','')}\n\n"
-            "Te dejo los modelos aquí 👇\n\n"
-            "📸 Instagram: https://www.instagram.com/regatea.latienda/\n"
-            "📘 Facebook: https://www.facebook.com/Regatea.latienda\n\n"
-            "💬 Háblanos por DM 😉"
-        )
-
-    # 🛍️ PRODUCTOS
-    if detectar_palabra(mensaje, ["poleron", "polerones", "hoodie"]):
-        cliente_actual["interes"] = "polerones"
-        cliente_actual["flujo"] = "preguntando_talla"
-        guardar_o_actualizar()
-        return "🔥 Tenemos polerones desde $15.000 ¿Quieres ver opciones?"
-
-    if detectar_palabra(mensaje, ["parka", "parkas", "chaqueta"]):
-        cliente_actual["interes"] = "parkas"
-        cliente_actual["flujo"] = "preguntando_talla"
-        guardar_o_actualizar()
-        return "🧥 Parkas desde $25.000 ¿Quieres ver opciones?"
-
-    if detectar_palabra(mensaje, ["bebe", "bebé", "guagua"]):
-        cliente_actual["interes"] = "ropa bebé"
-        cliente_actual["flujo"] = "preguntando_talla"
-        guardar_o_actualizar()
-        return "👶 Ropa de bebé desde $5.000 ¿Quieres ver opciones?"
-
-    # 🙌 GRACIAS / DESPEDIDA
-    if any(p in mensaje for p in ["gracias", "eso nomas", "eso no más", "eso seria", "eso sería"]):
-        cliente_actual["flujo"] = None
-        return (
-            f"😊 ¡De nada {cliente_actual.get('nombre','')}!\n\n"
-            "Si necesitas algo más, aquí estoy 🙌\n"
-            "💬 Escríbenos cuando quieras 😉"
-        )
-
-    # 🌐 REDES
-    if any(p in mensaje for p in ["catalogo", "productos", "ver"]):
-        return (
-            "🔥 Mira todo aquí 👇\n\n"
-            "📸 Instagram: https://www.instagram.com/regatea.latienda/\n"
-            "📘 Facebook: https://www.facebook.com/Regatea.latienda\n"
-            "🎵 TikTok: https://www.tiktok.com/@regatea.latienda\n\n"
-            "💬 Escríbenos por DM 😉"
-        )
-
-    return "🤔 No entendí… ¿Buscas polerones, parkas o ropa de bebé?"
+    except Exception as e:
+        return f"⚠️ Error: {e}"
 
 
 # =========================
 # LOOP
 # =========================
-print("📁 Guardando en:", ARCHIVO)
+print("📁 Bot iniciado")
 
 while True:
     mensaje = input("Cliente: ")
